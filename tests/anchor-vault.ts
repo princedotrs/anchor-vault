@@ -72,6 +72,34 @@ describe("anchor-vault", () => {
     console.log("Vault Balance:", await provider.connection.getBalance(vault));
   });
 
+  it("Withdraw 1 SOL with wrong owner -> should fail", async () => {
+    let user = anchor.web3.Keypair.generate();
+    const user_pubkey = user.publicKey;
+
+    console.log("user :", user_pubkey.toBase58());
+
+    const airdrop_tx = await provider.connection.requestAirdrop(
+      user_pubkey, 2* anchor.web3.LAMPORTS_PER_SOL
+    );
+    
+    console.log("airdrop tx :", airdrop_tx);
+
+    const tx = await program.methods
+      .withdraw(new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL))
+      .accountsPartial({
+        user: user_pubkey,
+        vaultState,
+        vault,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .signers([user])
+      .rpc();
+
+    console.log("\nYour transaction signature", tx);
+    console.log("Vault info:", await provider.connection.getAccountInfo(vault));
+    console.log("Vault Balance:", await provider.connection.getBalance(vault));
+  });
+
   it("Close Vault", async () => {
     const tx = await program.methods
       .close()
