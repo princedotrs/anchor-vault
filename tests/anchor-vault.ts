@@ -1,6 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { AnchorVault } from "../target/types/anchor_vault";
+import { assert } from "chai";
 
 describe("anchor-vault", () => {
   // Configure the client to use the local cluster.
@@ -72,32 +73,49 @@ describe("anchor-vault", () => {
     console.log("Vault Balance:", await provider.connection.getBalance(vault));
   });
 
+  it("Withdraw more than deposited -> should fail", async () => {
+    try {
+      await program.methods
+        .withdraw(new anchor.BN(5 * anchor.web3.LAMPORTS_PER_SOL))
+        .accountsPartial({
+          user: provider.wallet.publicKey,
+          vaultState,
+          vault,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .rpc();
+      assert.fail("withdraw should have been rejected");
+    } catch (e) {
+      assert.include(String(e), "InsufficientFunds");
+    }
+  });
+
   it("Withdraw 1 SOL with wrong owner -> should fail", async () => {
-    let user = anchor.web3.Keypair.generate();
-    const user_pubkey = user.publicKey;
+    // A different user derives a different vault_state PDA, so passing
+    // someone else's vault must fail the seeds check.
+    const user = anchor.web3.Keypair.generate();
 
-    console.log("user :", user_pubkey.toBase58());
-
-    const airdrop_tx = await provider.connection.requestAirdrop(
-      user_pubkey, 2* anchor.web3.LAMPORTS_PER_SOL
+    const sig = await provider.connection.requestAirdrop(
+      user.publicKey,
+      2 * anchor.web3.LAMPORTS_PER_SOL
     );
-    
-    console.log("airdrop tx :", airdrop_tx);
+    await provider.connection.confirmTransaction(sig, "confirmed");
 
-    const tx = await program.methods
-      .withdraw(new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL))
-      .accountsPartial({
-        user: user_pubkey,
-        vaultState,
-        vault,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([user])
-      .rpc();
-
-    console.log("\nYour transaction signature", tx);
-    console.log("Vault info:", await provider.connection.getAccountInfo(vault));
-    console.log("Vault Balance:", await provider.connection.getBalance(vault));
+    try {
+      await program.methods
+        .withdraw(new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL))
+        .accountsPartial({
+          user: user.publicKey,
+          vaultState,
+          vault,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+      assert.fail("withdraw by a different user should have been rejected");
+    } catch (e) {
+      assert.include(String(e), "ConstraintSeeds");
+    }
   });
 
   it("Close Vault", async () => {
