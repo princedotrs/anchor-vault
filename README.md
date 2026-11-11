@@ -1,5 +1,7 @@
 # anchor-vault: a secure SOL vault on Solana, built with Anchor
 
+[![CI](https://github.com/princedotrs/anchor-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/princedotrs/anchor-vault/actions/workflows/ci.yml)
+
 A minimal per-user SOL vault written in Rust with Anchor. Each user gets their own vault that only they can withdraw from. It's part of my **Solana from first principles** course: the code here is what we build on camera, line by line.
 
 > **Watch the lessons:** [Part 1: Architecture & logic](https://youtu.be/rQZJF6PGn3M) · [Part 2: Anchor implementation](https://youtu.be/0FGxIg3DIkw) · [Part 3: Testing with Surfpool](https://youtu.be/l_1j12ev598)
