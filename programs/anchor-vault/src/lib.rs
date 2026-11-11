@@ -1,4 +1,3 @@
-use anchor_lang::prelude::*;
 use anchor_lang::{
     prelude::*,
     system_program::{transfer, Transfer},
@@ -8,8 +7,6 @@ declare_id!("6FucFnpGdc84xS6rHEDh4V3oCwMLW3qdThMRoQuvgkmp");
 
 #[program]
 pub mod anchor_vault {
-    use crate::instruction::{Close, Deposit};
-
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
@@ -58,10 +55,6 @@ pub struct Initialize<'info> {
 impl<'info> Initialize<'info> {
     // Sets up the vault state with bump seeds for PDAs.
     pub fn initialize(&mut self, bumps: &InitializeBumps) -> Result<()> {
-        // self.vault_state.vault_bump = bumps.vault; // Stores vault PDA bump.
-        // self.vault_state.state_bump = bumps.vault_state; // Stores state PDA bump.
-        // self.vault_state.amount = 0; // set the amount as 0 for now
-
         self.vault_state.set_inner(VaultState {
             vault_bump: bumps.vault,
             state_bump: bumps.vault_state,
@@ -105,12 +98,20 @@ impl<'info> Payment<'info> {
         let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts); // Context for the transfer.
         transfer(cpi_ctx, amount)?; // Executes the SOL transfer.
 
-        self.vault_state.amount = amount;
+        // Track the running total, not just the latest deposit.
+        self.vault_state.amount = self
+            .vault_state
+            .amount
+            .checked_add(amount)
+            .ok_or(VaultError::Overflow)?;
 
         Ok(())
     }
 
     pub fn withdraw(&mut self, amount: u64) -> Result<()> {
+        // Can't withdraw more than was deposited.
+        require!(amount <= self.vault_state.amount, VaultError::InsufficientFunds);
+
         let cpi_program = self.system_program.to_account_info(); // System program for transfer.
         let cpi_accounts = Transfer {
             from: self.vault.to_account_info(), // Vault as the source.
@@ -126,7 +127,7 @@ impl<'info> Payment<'info> {
         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds); // Signed context.
         transfer(cpi_ctx, amount)?; // Executes the SOL transfer.
 
-        self.vault_state.amount -= amount;
+        self.vault_state.amount -= amount; // Safe: checked above.
 
         Ok(())
     }
@@ -177,54 +178,7 @@ impl<'info> CloseAccount<'info> {
     }
 }
 
-// #[derive(Accounts)]
-// pub struct Withdraw<'info> {
-//     #[account(mut)]
-//     pub user: Signer<'info>, // The user performing the deposit or withdrawal.
-
-//     #[account(
-//         mut,
-//         seeds = [b"state", user.key().as_ref()], // Matches the vault state PDA.
-//         bump = vault_state.state_bump // Ensures correct PDA with stored bump.
-//     )]
-//     pub vault_state: Account<'info, VaultState>, // Accesses vault configuration.
-
-//     #[account(
-//         mut,
-//         seeds = [b"vault", vault_state.key().as_ref()], // Matches the vault PDA.
-//         bump = vault_state.vault_bump // Ensures correct PDA with stored bump.
-//     )]
-//     pub vault: SystemAccount<'info>, // The account holding the SOL.
-
-//     pub system_program: Program<'info, System> // Used for SOL transfers.
-// }
-
-// impl<'info> Withdraw<'info> {
-//     // Withdraws SOL from the vault to the user, signed by the vault PDA.
-//     pub fn withdraw(&mut self, amount: u64) -> Result<()> {
-//         let cpi_program = self.system_program.to_account_info(); // System program for transfer.
-//         let cpi_accounts = Transfer {
-//             from: self.vault.to_account_info(), // Vault as the source.
-//             to: self.user.to_account_info(), // User's account as the destination.
-//         };
-//         // Seeds for PDA signing authority.
-//         let seeds = &[
-//             b"vault",
-//             self.vault_state.to_account_info().key.as_ref(),
-//             &[self.vault_state.vault_bump],
-//         ];
-//         let signer_seeds = &[&seeds[..]]; // Array of seeds for signing.
-//         let cpi_ctx = CpiContext::new_with_signer(cpi_program, cpi_accounts, signer_seeds); // Signed context.
-//         transfer(cpi_ctx, amount)?; // Executes the SOL transfer.
-
-//         self.vault_state.amount -= amount;
-
-//         Ok(())
-//     }
-// }
-
 #[account]
-// #[derive(InitSpace)]
 pub struct VaultState {
     pub vault_bump: u8, // Bump for the vault PDA.
     pub state_bump: u8, // Bump for the vault state PDA.
@@ -233,4 +187,12 @@ pub struct VaultState {
 
 impl Space for VaultState {
     const INIT_SPACE: usize = 8 + 1 + 1 + 8; // 8 bytes for discriminator + 1 for vault_bump + 1 for state_bump + 8 for amount
+}
+
+#[error_code]
+pub enum VaultError {
+    #[msg("Withdraw amount is more than the vault holds")]
+    InsufficientFunds,
+    #[msg("Amount overflow")]
+    Overflow,
 }
